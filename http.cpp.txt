@@ -1,0 +1,42 @@
+#include <sstream>
+#include "tcpsocket.hpp"
+
+int main(){
+
+    TcpSocket sock;
+    CHECK_RET(sock.Socket()); //创建套接字
+    CHECK_RET(sock.Bind("0.0.0.0",8000)); //绑定
+    CHECK_RET(sock.Listen()); //监听
+
+    //获取已连接套接字
+    while(1){
+        TcpSocket clisock;
+        bool ret = sock.Accept(clisock);
+        if(ret == false){
+            continue;
+        }
+        //获取已连接套接字成功
+        //接收数据并打印
+        std::string buf;
+        clisock.Recv(buf);
+        std::cout << "req:[" << buf << "]" << std::endl;
+        //响应
+        std::string first = "HTTP/1.1 200 OK\r\n"; //首行
+        std::string body = "<html><body><h1>马玲玉 我喜欢你</h1></body></html>"; //正文
+        body += "<meta http-equiv='content-type' content='text/html;charset=utf-8'>";
+        std::stringstream ss;
+        ss << "Content-Length:" << body.size() << "\r\n";
+        std::string head = ss.str(); //头部
+        std::string blank = "\r\n";  //空行
+        
+        //回复响应
+        clisock.Send(first);
+        clisock.Send(head);
+        clisock.Send(blank);
+        clisock.Send(body);
+        clisock.Close();  //关闭已连接套接字
+    }
+    sock.Close(); //关闭拉皮条套接字
+
+    return 0;
+}
