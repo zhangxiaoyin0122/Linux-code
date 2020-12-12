@@ -1,0 +1,176 @@
+#ifndef __M_HTTP_H__
+#define __M_HTTP_H__
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <sstream>
+#include "tcpsocket.hpp"
+#include "threadpool.hpp"
+#include <boost/algorithm/string.hpp>
+using namespace std;
+
+
+
+class HttpRequest{
+    public:
+        string _mothod; //请求方法
+        string _path; //请求路径
+        unordered_map<string,string> _param; //查询字符串
+        unordered_map<string,string> _headers; //请求头部信息
+        string _body; //请求正文
+    public:
+        //接收首行 头部 空行信息
+        bool RecvHeader(TcpSocket& sock,string& header){
+            while(1){
+                //接收头部
+                //1.探测性的接收大量数据
+                string tmp;
+                if(sock.Recvpeek(tmp) == false){
+                    return false;
+                }
+                //判断是否包含整个头部 \r\n
+                size_t pos;
+                pos = tmp.find("\r\n\r\n",0);
+                //3.判断当前接收的数据长度
+                if(pos == string::npos && tmp.size() == 8192){
+                    return false;
+                }else if(pos != string::npos){
+                    size_t header_len = pos;
+                    sock.Recv(header,header_len);
+                    sock.Recv(tmp,4);
+                    return true;
+                }
+            }
+            return true;
+        }
+        //解析首行
+        bool FirstLineParse(string& line){
+            //首行格式: 请求方法 URL 协议版本\r\n
+            // GET / HTTP/1.1
+            // 将首行按空格进行解析
+            vector<string> line_list;
+            boost::split(line_list,line,boost::is_any_of(" "),boost::token_compress_on);
+             int n = line_list.size();
+             if(n != 3){
+                 cerr << "parse first_line error" << endl;
+                 return false;
+             }
+             _mothod = line_list[0]; //给请求方法赋值
+             //再判断有没有查询字符串
+             size_t pos = line_list[1].find("?",0);
+             if(pos == string::npos){ //无查询字符串
+                 _path = line_list[1];
+             }else{//有查询字符串
+                 _path = line_list[1].substr(0,pos); //给URL赋值
+                 string query_string = line_list[1].substr(pos+1);//获取查询字符串
+                 //查询字符串格式:key=val&key=val..
+                 //对查询字符串进行解析
+                 //以key=val的形式,先以&进行分割
+                 vector<string> param_list;
+                 boost::split(param_list,query_string,boost::is_any_of("&"),boost::token_compress_on);
+                 //在将每个键值对进行解析
+                 for(auto i : param_list){
+                     size_t param_pos = -1;
+                     param_pos = i.find("=");
+                     if(param_pos == string::npos){
+                         cerr << "parse param error" << endl;
+                         return false;
+                     }
+                     string key = i.substr(0,param_pos);
+                     string val = i.substr(param_pos+1);
+                     _param[key] = val;
+                 }
+             }
+             return true;
+        }
+
+    public:
+        //解析请求
+        int RequestParse(TcpSocket& sock){
+            //1.接收HTTP头部
+            string header;
+            if(RecvHeader(sock,header) == false){
+                return 400;
+            }
+
+            vector<string> header_list;
+            boost::split(header_list,header,boost::is_any_of("\r\n"),boost::token_compress_on);
+            //进行首行解析
+            if(FirstLineParse(header_list[0]) == false){
+                return false;
+            }
+            //头部解析
+            size_t pos = 0;
+            for(size_t i = 1;i < header_list.size();i++){
+                pos = header_list[i].find(": ");
+                if(pos == string::npos){
+                    cerr << "parse header error" << endl;
+                    return false;
+                }
+                string key = header_list[i].substr(0,pos);
+                string val = header_list[i].substr(pos+2);
+                _headers[key] = val;
+            }
+
+            auto it = _headers.find("Content-Length");
+            if(it != _headers.end()){
+                stringstream ss;
+                ss << it->second;
+                int64_t file_len;
+                ss >> file_len; //获取正文长度
+                sock.Recv(_body,file_len); //接收正文
+            }
+            return 200;
+        }
+};
+
+class HttpResponse{
+    public:
+        int _status; //状态码
+        string _body; //正文
+        unordered_map<string,string> _headers;//头部信息
+    private:
+        //获取状态码描述
+        string GetDesc(){
+            switch(_status){
+                case 400 : return "Bad Request";
+                case 404 : return "Not Found";
+                case 200 : return "ok";
+            }
+            return "UnKnow";
+        }
+
+    public:
+        //设置头部信息
+        bool SetHeaders(const string& key,const string& val){
+            _headers[key] = val;
+            return true;
+        }
+        bool ErrorResponse(TcpSocket& sock){
+            return true;
+        }
+
+        bool SuccessResponse(TcpSocket& sock){
+            //组织数据
+            //首行
+            string line;
+            string header;
+            stringstream ss;
+            
+            ss << "HTTP/1.1" << " " << _status << " " << GetDesc();
+            ss << "\r\n";
+            //如果没有找到正文长度就自己添加
+            if(_headers.find("Content-Length") == _headers.end()){
+                string len = to_string(_body.size());
+                _headers["Content-Length"] = len;
+            }
+            for(auto i : _headers){
+                ss << i.first << ": " << i.second <<"\r\n";
+            }
+            ss << "\r\n";
+            sock.Send(ss.str());
+            sock.Send(_body);
+            return true;
+        }
+};
+#endif
