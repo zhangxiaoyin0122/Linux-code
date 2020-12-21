@@ -1,0 +1,51 @@
+#include <stdlib.h>
+#include <signal.h>
+#include "tcpsocket.hpp"
+#include <sys/wait.h>
+
+void sigcb(int signo){
+    while(waitpid(-1,NULL,WNOHANG) > 0);
+}
+
+int main(int argc,char* argv[]){
+    if( argc != 3 ){
+        std::cout << "./tcp_srv 192.168.193.132 9000" << std::endl;
+        return -1;
+    }
+    signal(SIGCHLD,sigcb);
+    std::string ip = argv[1];
+    uint16_t port = atoi(argv[2]);
+    TcpSocket lst_sock;
+    //创建套接字
+    CHECK_RET(lst_sock.Socket());
+    //绑定地址信息
+    CHECK_RET(lst_sock.Bind(ip,port));
+    //
+    CHECK_RET(lst_sock.Listen());
+    TcpSocket newSock;
+    while(1){
+        bool ret = lst_sock.Accept(newSock);
+        if( ret == false ){
+            continue;
+        }
+        if(fork() == 0){
+            while(1){
+                std::string buf;
+                ret = newSock.Recv(buf);
+                if(ret == false){
+                    newSock.Close();
+                    continue;
+                }
+                std::cout << "client say: " << buf << std::endl;
+                buf.clear();
+                std::cin >> buf;
+                newSock.Send(buf);
+            }
+            newSock.Close();
+            exit(0);
+        }
+        newSock.Close();
+    }
+    lst_sock.Close(); //关闭套接字
+    return 0;
+}
