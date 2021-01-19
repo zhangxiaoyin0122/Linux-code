@@ -1,0 +1,66 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <pthread.h>
+
+int blow = 0;
+//定义两个条件变量
+
+pthread_cond_t con_cus;
+pthread_cond_t con_cook;
+//定义互斥锁
+pthread_mutex_t mutex;
+
+//顾客线程回调函数
+void* start_cus(void* arg){
+    while(1){
+        //上锁
+        pthread_mutex_lock(&mutex);
+        while(blow == 0){
+            //碗里没饭,则等待(利用条件变量)
+            pthread_cond_wait(&con_cus,&mutex);
+            //涉及 解锁等待+被唤醒加锁 等操作
+        }
+        printf("饭真好吃~~\n");
+        blow = 0;
+        pthread_cond_signal(&con_cook);
+        pthread_mutex_unlock(&mutex);
+    }
+    return NULL;
+}
+//厨师线程回调函数
+void* start_cook(void* arg){
+    while(1){
+        pthread_mutex_lock(&mutex);
+        while(blow == 1){
+            //碗里有饭则等待
+            pthread_cond_wait(&con_cook,&mutex);
+        }
+        printf("厨师正在做饭~~\n");
+        blow = 1;
+        //唤醒
+        pthread_cond_signal(&con_cus);
+        pthread_mutex_unlock(&mutex);
+    }
+    return NULL;
+}
+int main(){
+    //初始化条件变量与互斥锁
+    pthread_cond_init(&con_cus,NULL);
+    pthread_cond_init(&con_cook,NULL);
+    pthread_mutex_init(&mutex,NULL);
+    //创建两个线程
+    pthread_t cond_cus; //顾客
+    pthread_t cond_cook; //厨师
+
+    pthread_create(&cond_cus,NULL,start_cus,NULL);
+    pthread_create(&cond_cook,NULL,start_cook,NULL);
+    //线程等待
+    pthread_join(cond_cus,NULL);
+    pthread_join(cond_cook,NULL);
+    //销毁条件变量与互斥锁
+    pthread_cond_destroy(&con_cus);
+    pthread_cond_destroy(&con_cook);
+    pthread_mutex_destroy(&mutex);
+    return 0;
+}
