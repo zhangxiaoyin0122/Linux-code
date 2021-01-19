@@ -1,0 +1,46 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <pthread.h>
+
+//定义互斥量
+pthread_mutex_t mutex;
+int tickets = 100; 
+
+//线程回调函数
+void* routine(void* arg){
+    while(1){
+        //上锁:
+        pthread_mutex_lock(&mutex);
+        if(tickets > 0){
+            printf("哈哈哈 我抢到%d号票了~~\n",tickets);
+            tickets--;
+            usleep(1000); //睡眠1000微秒,也就是1毫秒
+            //解锁
+            pthread_mutex_unlock(&mutex);
+        }else{
+            //解锁
+            pthread_mutex_unlock(&mutex);
+            //退出线程
+            pthread_exit(NULL);
+        }
+    }
+}
+
+int main(){
+    pthread_t tid[4]; 
+    pthread_mutex_init(&mutex,NULL);
+    int i;
+    //创建4个线程
+    for(i = 0;i < 4;i++){
+        pthread_create(&tid[i],NULL,routine,NULL);
+    }
+    //线程等待
+    for(i = 0;i <4;i++){
+        pthread_join(tid[i],NULL);
+    }
+    //互斥量的销毁
+    pthread_mutex_destroy(&mutex);
+    return 0;
+}
